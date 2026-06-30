@@ -258,7 +258,9 @@ enable_route() {
     local payload
     local response
     payload="$(jq -n --arg name "$CF_RECORD_NAME" --arg content "$CF_TUNNEL_CNAME" '{type:"CNAME",name:$name,content:$content,proxied:true}')"
+    debug "Creating CNAME record for ${CF_RECORD_NAME} -> ${CF_TUNNEL_CNAME}"
     if ! response="$(api_request POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" "$payload")"; then
+      debug "Failed to create CNAME record for ${CF_RECORD_NAME} -> ${CF_TUNNEL_CNAME}"
       exit 1
     fi
     assert_cf_success "$response" "create"
@@ -269,6 +271,7 @@ enable_route() {
     record_id="$(printf '%s' "$record_json" | jq -r '.id // empty')"
     existing_content="$(printf '%s' "$record_json" | jq -r '.content // empty')"
     existing_proxied="$(printf '%s' "$record_json" | jq -r '.proxied // false')"
+    debug "Existing CNAME record found for ${CF_RECORD_NAME}: ${existing_content} (proxied=${existing_proxied})"
 
     if [[ "$existing_content" == "$CF_TUNNEL_CNAME" && "$existing_proxied" == "true" ]]; then
       log "Route already exists: ${CF_RECORD_NAME}"
@@ -276,7 +279,9 @@ enable_route() {
     fi
 
     payload="$(jq -n --arg type "CNAME" --arg name "$CF_RECORD_NAME" --arg content "$CF_TUNNEL_CNAME" '{type:$type,name:$name,content:$content,proxied:true}')"
+    debug "Updating CNAME record for ${CF_RECORD_NAME} -> ${CF_TUNNEL_CNAME}"
     if ! response="$(api_request PUT "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${record_id}" "$payload")"; then
+      debug "Failed to update CNAME record for ${CF_RECORD_NAME} -> ${CF_TUNNEL_CNAME}"
       exit 1
     fi
     assert_cf_success "$response" "update"
@@ -288,6 +293,7 @@ enable_route() {
 disable_route() {
   local record_json
   record_json="$(get_record_json)"
+  debug "Existing CNAME record JSON for ${CF_RECORD_NAME}: ${record_json}"
 
   if [ -n "$record_json" ]; then
     local record_id existing_content allow_mismatch
@@ -302,7 +308,9 @@ disable_route() {
       exit 1
     fi
 
+    debug "Deleting CNAME record for ${CF_RECORD_NAME} -> ${existing_content}"
     if ! response="$(api_request DELETE "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${record_id}")"; then
+      debug "Failed to delete CNAME record for ${CF_RECORD_NAME} -> ${existing_content}"
       exit 1
     fi
     assert_cf_success "$response" "delete"
@@ -318,6 +326,7 @@ status_route() {
   record_json="$(printf '%s' "$response" | jq -c --arg name "$CF_RECORD_NAME" 'first(.result[]? | select(.type == "CNAME" and .name == $name)) // empty')"
 
   if [[ "$VERBOSE" == "1" ]]; then
+    debug "Full response: $response"
     printf '%s\n' "$response" | jq .
     return
   fi
@@ -491,33 +500,43 @@ parse_args() {
 apply_overrides() {
   if [[ -n "$OVERRIDE_CF_ZONE_ID" ]]; then
     CF_ZONE_ID="$OVERRIDE_CF_ZONE_ID"
+    debug "CF_ZONE_ID overridden to '$CF_ZONE_ID'"
   fi
   if [[ -n "$OVERRIDE_CF_API_TOKEN" ]]; then
     CF_API_TOKEN="$OVERRIDE_CF_API_TOKEN"
+    debug "CF_API_TOKEN overridden"
   fi
   if [[ -n "$OVERRIDE_CF_RECORD_NAME" ]]; then
     CF_RECORD_NAME="$OVERRIDE_CF_RECORD_NAME"
+    debug "CF_RECORD_NAME overridden to '$CF_RECORD_NAME'"
   fi
   if [[ -n "$OVERRIDE_CF_TUNNEL_CNAME" ]]; then
     CF_TUNNEL_CNAME="$OVERRIDE_CF_TUNNEL_CNAME"
+    debug "CF_TUNNEL_CNAME overridden to '$CF_TUNNEL_CNAME'"
   fi
   if [[ -n "$OVERRIDE_CF_TUNNEL_ID" ]]; then
     CF_TUNNEL_ID="$OVERRIDE_CF_TUNNEL_ID"
+    debug "CF_TUNNEL_ID overridden to '$CF_TUNNEL_ID'"
   fi
   if [[ -n "$OVERRIDE_CF_ENV_FILE" ]]; then
     CF_ENV_FILE="$OVERRIDE_CF_ENV_FILE"
+    debug "CF_ENV_FILE overridden to '$CF_ENV_FILE'"
   fi
   if [[ -n "$OVERRIDE_CF_ALLOW_DELETE_MISMATCH" ]]; then
     CF_ALLOW_DELETE_MISMATCH="$OVERRIDE_CF_ALLOW_DELETE_MISMATCH"
+    debug "CF_ALLOW_DELETE_MISMATCH overridden to '$CF_ALLOW_DELETE_MISMATCH'"
   fi
   if [[ -n "$OVERRIDE_CF_CONNECT_TIMEOUT" ]]; then
     CF_CONNECT_TIMEOUT="$OVERRIDE_CF_CONNECT_TIMEOUT"
+    debug "CF_CONNECT_TIMEOUT overridden to '$CF_CONNECT_TIMEOUT'"
   fi
   if [[ -n "$OVERRIDE_CF_MAX_TIME" ]]; then
     CF_MAX_TIME="$OVERRIDE_CF_MAX_TIME"
+    debug "CF_MAX_TIME overridden to '$CF_MAX_TIME'"
   fi
   if [[ -n "$OVERRIDE_CF_RETRY_COUNT" ]]; then
     CF_RETRY_COUNT="$OVERRIDE_CF_RETRY_COUNT"
+    debug "CF_RETRY_COUNT overridden to '$CF_RETRY_COUNT'"
   fi
 }
 
