@@ -1,0 +1,10 @@
+CF_TUNNEL_ID=1
+CF_TUNNEL_TOKEN=token-here
+CF_ZONE_ID=zone-id-here
+CF_API_TOKEN=api-token-here
+CF_CONNECT_TIMEOUT=5
+CF_MAX_TIME=8
+CF_RETRY_COUNT=3
+CF_RECORD_NAME=subdomain.
+CF_TUNNEL_CNAME=${CF_TUNNEL_ID}.cfargotunnel.com
+CF_ALLOW_DELETE_MISMATCH=false # Set to true to allow delete when CNAME target differs.

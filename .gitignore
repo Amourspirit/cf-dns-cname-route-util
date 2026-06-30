@@ -1,0 +1,48 @@
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+
+dist/
+build/
+out/
+*.log
+.DS_Store
+.idea/
+
+*.iml
+*.swp
+*.bak
+*.tmp
+*.cache
+*.pid
+*.seed
+*.pid.lock
+
+tmp/
+temp/
+
+.github/context-mode/
+
+# PI
+.pi/sessions/
+.pi/agent/
+.pi/extensions/
+.pi/tools/
+.pi/skills/
+.pi/settings.json
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
+.env
+!.env.example
+
+cf-dns-routes.code-workspace
