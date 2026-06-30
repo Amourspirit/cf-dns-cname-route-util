@@ -2,7 +2,7 @@
 # tunnel_route.sh — enable/disable Cloudflare DNS record for tunnel routing.
 
 set -euo pipefail
-
+CF_TUNNEL_CNAME_SUFFIX="${CF_TUNNEL_CNAME_SUFFIX:-.cfargotunnel.com}"
 QUIET=0
 VERBOSE=0
 DEBUG=0
@@ -348,9 +348,9 @@ status_route() {
   state="present"
   if [[ -n "${CF_TUNNEL_CNAME:-}" ]]; then
     if [[ "$existing_content" == "$CF_TUNNEL_CNAME" ]]; then
-      state="match"
+      state="active"
     else
-      state="mismatch"
+      state="inactive"
     fi
   fi
 
@@ -359,8 +359,8 @@ status_route() {
     return
   fi
 
-  if [[ -n "${CF_TUNNEL_CNAME:-}" && "$state" == "mismatch" ]]; then
-    log "Status: mismatch (${CF_RECORD_NAME}) id=${record_id} content=${existing_content} expected=${CF_TUNNEL_CNAME} proxied=${existing_proxied}"
+  if [[ -n "${CF_TUNNEL_CNAME:-}" && "$state" == "inactive" ]]; then
+    log "Status: inactive (${CF_RECORD_NAME}) id=${record_id} content=${existing_content} expected=${CF_TUNNEL_CNAME} proxied=${existing_proxied}"
   else
     log "Status: ${state} (${CF_RECORD_NAME}) id=${record_id} content=${existing_content} proxied=${existing_proxied}"
   fi
@@ -517,6 +517,11 @@ apply_overrides() {
   if [[ -n "$OVERRIDE_CF_TUNNEL_ID" ]]; then
     CF_TUNNEL_ID="$OVERRIDE_CF_TUNNEL_ID"
     debug "CF_TUNNEL_ID overridden to '$CF_TUNNEL_ID'"
+
+    if [[ -z "$OVERRIDE_CF_TUNNEL_CNAME" ]]; then
+      CF_TUNNEL_CNAME="${CF_TUNNEL_ID}${CF_TUNNEL_CNAME_SUFFIX}"
+      debug "CF_TUNNEL_CNAME derived from overridden CF_TUNNEL_ID as '$CF_TUNNEL_CNAME'"
+    fi
   fi
   if [[ -n "$OVERRIDE_CF_ENV_FILE" ]]; then
     CF_ENV_FILE="$OVERRIDE_CF_ENV_FILE"
@@ -566,7 +571,7 @@ require_command jq
 debug "required commands are available"
 
 if [ -z "${CF_TUNNEL_CNAME:-}" ] && [ -n "${CF_TUNNEL_ID:-}" ]; then
-  CF_TUNNEL_CNAME="${CF_TUNNEL_ID}.cfargotunnel.com"
+  CF_TUNNEL_CNAME="${CF_TUNNEL_ID}${CF_TUNNEL_CNAME_SUFFIX}"
   debug "derived CF_TUNNEL_CNAME from CF_TUNNEL_ID"
 fi
 
