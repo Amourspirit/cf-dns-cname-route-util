@@ -64,9 +64,12 @@ Examples:
 ## Tracked Routes
 
 A successful `enable` records the started `(zone, record, target)` route in a
-tab-delimited sidecar registry (`.tracked_routes`) next to the discovered
-`.env`, deduped by `(zone, record)`. `disable` removes the current route from
-the registry.
+tab-delimited sidecar registry (`.tracked_routes`), deduped by `(zone, record)`.
+`disable` removes the current route from the registry.
+
+The registry directory comes from `CF_TRACKED_ROUTES` (a directory; the file is
+`.tracked_routes` inside it), defaulting to
+`${XDG_STATE_HOME:-$HOME}/cf-dns-cname-route/`. The directory is auto-created.
 
 - `routes` lists every tracked route as a table
   (`RECORD<TAB>ZONE<TAB>TARGET<TAB>STATUS`). Status is queried live for routes

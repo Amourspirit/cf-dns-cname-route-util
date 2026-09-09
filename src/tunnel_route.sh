@@ -99,8 +99,10 @@ Notes:
   - If CF_ENV_FILE is unset, parent directories are searched from script location.
 
 Tracked routes:
-  - A successful 'enable' records the route in a sidecar registry (.tracked_routes)
-    next to the discovered .env. 'disable' removes it from the registry.
+  - A successful 'enable' records the route in a sidecar registry (.tracked_routes).
+    'disable' removes it from the registry.
+  - Registry lives in CF_TRACKED_ROUTES, or defaults to
+    ${XDG_STATE_HOME:-$HOME}/cf-dns-cname-route/. The directory is auto-created.
   - 'routes' lists every tracked route. Status is queried live for routes in the
     loaded zone; other-zone tracks show 'other-zone'.
   - 'disable-route <record>' deletes and untracks a tracked route. It only works
@@ -383,15 +385,8 @@ status_route() {
 # --- Tracked-route registry ---
 
 registry_path() {
-  local env_file="${CF_ENV_FILE:-}"
-  local dir
-  if [[ -n "$env_file" && -f "$env_file" ]]; then
-    dir="$(dirname "$env_file")"
-  elif [[ -n "$env_file" && -d "$env_file" ]]; then
-    dir="$env_file"
-  else
-    dir="$ENV_DIR"
-  fi
+  local dir="${CF_TRACKED_ROUTES:-${XDG_STATE_HOME:-$HOME}/cf-dns-cname-route}"
+  mkdir -p "$dir"
   printf '%s/.tracked_routes' "$dir"
 }
 

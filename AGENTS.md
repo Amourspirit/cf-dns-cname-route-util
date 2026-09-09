@@ -11,7 +11,7 @@ Single self-contained bash script (`src/tunnel_route.sh`) wrapping the Cloudflar
 ## Gotchas
 
 - There are NO tests and no CI. The script mutates real Cloudflare DNS via the live API — never run it cleanly or against production data without care. `disable` refuses to delete on target mismatch unless `CF_ALLOW_DELETE_MISMATCH=true`.
-- `.env` holds real credentials and is gitignored, as is the `.tracked_routes` registry sidecar (lives beside the discovered `.env`). Never commit or print token values.
+- `.env` holds real credentials and is gitignored, as is the `.tracked_routes` registry sidecar (defaulting to `${XDG_STATE_HOME:-$HOME}/cf-dns-cname-route/`). Never commit or print token values.
 
 ## Domain language
 

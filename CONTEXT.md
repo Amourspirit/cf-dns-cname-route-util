@@ -13,7 +13,7 @@ A route that this tool has successfully started (`enable`) and recorded in the l
 _Avoid_: Zone, tracked zone
 
 **Registry**:
-The local tab-delimited sidecar file (`.tracked_routes`) listing every tracked route. Lives beside the discovered `.env`.
+The local tab-delimited sidecar file (`.tracked_routes`) listing every tracked route. Its directory comes from `CF_TRACKED_ROUTES`, defaulting to `${XDG_STATE_HOME:-$HOME}/cf-dns-cname-route`.
 _Avoid_: List, config, database
 
 **Current route**:
