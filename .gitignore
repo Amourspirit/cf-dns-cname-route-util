@@ -45,4 +45,6 @@ venv/
 .env
 !.env.example
 
+.tracked_routes
+
 cf-dns-routes.code-workspace

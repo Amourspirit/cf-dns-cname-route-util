@@ -40,11 +40,13 @@ cp .env.example .env
 ## Commands
 
 ```text
-enable     Create the Cloudflare CNAME route if it does not exist.
-disable    Delete the Cloudflare CNAME route if it exists.
-rid        Print the Cloudflare DNS record ID for CF_RECORD_NAME.
-status     Show status of the Cloudflare CNAME record.
-help       Show help.
+enable           Create the Cloudflare CNAME route if it does not exist.
+disable          Delete the Cloudflare CNAME route if it exists.
+rid              Print the Cloudflare DNS record ID for CF_RECORD_NAME.
+status           Show status of the Cloudflare CNAME record.
+routes           List every tracked route and its status.
+disable-route N  Delete a tracked route's CNAME record and untrack it.
+help             Show help.
 ```
 
 Examples:
@@ -55,7 +57,26 @@ Examples:
 ./src/tunnel_route.sh rid
 ./src/tunnel_route.sh status
 ./src/tunnel_route.sh --debug status
+./src/tunnel_route.sh routes
+./src/tunnel_route.sh disable-route app.example.com
 ```
+
+## Tracked Routes
+
+A successful `enable` records the started `(zone, record, target)` route in a
+tab-delimited sidecar registry (`.tracked_routes`) next to the discovered
+`.env`, deduped by `(zone, record)`. `disable` removes the current route from
+the registry.
+
+- `routes` lists every tracked route as a table
+  (`RECORD<TAB>ZONE<TAB>TARGET<TAB>STATUS`). Status is queried live for routes
+  in the currently loaded zone; routes in other zones show `other-zone`. No
+  current record name is required to list.
+- `disable-route <record>` deletes the CNAME record and removes the route from
+  the registry. It only works for routes in the currently loaded zone — for
+  other-zone routes, load that zone's environment (e.g. `--cf-env-file`) first.
+- `disable-route` on a record that isn't tracked or is in another zone exits
+  with an error and leaves the registry untouched.
 
 ## CLI Options
 

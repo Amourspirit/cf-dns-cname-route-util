@@ -53,11 +53,13 @@ Usage:
   tunnel_route.sh [options] <command>
 
 Commands:
-  enable     Create the Cloudflare CNAME route if it does not exist.
-  disable    Delete the Cloudflare CNAME route if it exists.
-  rid        Print the Cloudflare DNS record ID for CF_RECORD_NAME.
-  status     Show status of the Cloudflare CNAME record.
-  help       Show this help message.
+  enable           Create the Cloudflare CNAME route if it does not exist.
+  disable          Delete the Cloudflare CNAME route if it exists.
+  rid              Print the Cloudflare DNS record ID for CF_RECORD_NAME.
+  status           Show status of the Cloudflare CNAME record.
+  routes           List every tracked route and its status.
+  disable-route N  Delete a tracked route's CNAME record and untrack it.
+  help             Show this help message.
 
 Options:
   -h, --help      Show this help message.
@@ -95,11 +97,19 @@ Notes:
   - If CF_ENV_FILE is set to a file, that file is loaded directly.
   - If CF_ENV_FILE is set to a directory, CF_ENV_FILE/.env is loaded.
   - If CF_ENV_FILE is unset, parent directories are searched from script location.
+
+Tracked routes:
+  - A successful 'enable' records the route in a sidecar registry (.tracked_routes)
+    next to the discovered .env. 'disable' removes it from the registry.
+  - 'routes' lists every tracked route. Status is queried live for routes in the
+    loaded zone; other-zone tracks show 'other-zone'.
+  - 'disable-route <record>' deletes and untracks a tracked route. It only works
+    for routes in the currently loaded zone; load that zone's env otherwise.
 EOF
 }
 
 print_usage() {
-  echo "Usage: $0 [options] {enable|disable|rid|status|help}" >&2
+  echo "Usage: $0 [options] {enable|disable|rid|status|routes|disable-route <record>|help}" >&2
   echo "Run '$0 --help' for details." >&2
 }
 
@@ -265,6 +275,7 @@ enable_route() {
     fi
     assert_cf_success "$response" "create"
     log "Route enabled: ${CF_RECORD_NAME} -> ${CF_TUNNEL_CNAME}"
+    registry_write "$(registry_track "$CF_ZONE_ID" "$CF_RECORD_NAME" "$CF_TUNNEL_CNAME")"
   else
     local record_id existing_content existing_proxied
     local payload response
@@ -275,6 +286,7 @@ enable_route() {
 
     if [[ "$existing_content" == "$CF_TUNNEL_CNAME" && "$existing_proxied" == "true" ]]; then
       log "Route already exists: ${CF_RECORD_NAME}"
+      registry_write "$(registry_track "$CF_ZONE_ID" "$CF_RECORD_NAME" "$CF_TUNNEL_CNAME")"
       return
     fi
 
@@ -286,6 +298,7 @@ enable_route() {
     fi
     assert_cf_success "$response" "update"
     log "Route updated: ${CF_RECORD_NAME} -> ${CF_TUNNEL_CNAME}"
+    registry_write "$(registry_track "$CF_ZONE_ID" "$CF_RECORD_NAME" "$CF_TUNNEL_CNAME")"
   fi
 }
 
@@ -318,6 +331,7 @@ disable_route() {
   else
     log "Route already removed: ${CF_RECORD_NAME}"
   fi
+  registry_write "$(registry_untrack "$CF_ZONE_ID" "$CF_RECORD_NAME")"
 }
 
 status_route() {
@@ -364,6 +378,108 @@ status_route() {
   else
     log "Status: ${state} (${CF_RECORD_NAME}) id=${record_id} content=${existing_content} proxied=${existing_proxied}"
   fi
+}
+
+# --- Tracked-route registry ---
+
+registry_path() {
+  local env_file="${CF_ENV_FILE:-}"
+  local dir
+  if [[ -n "$env_file" && -f "$env_file" ]]; then
+    dir="$(dirname "$env_file")"
+  elif [[ -n "$env_file" && -d "$env_file" ]]; then
+    dir="$env_file"
+  else
+    dir="$ENV_DIR"
+  fi
+  printf '%s/.tracked_routes' "$dir"
+}
+
+registry_read() {
+  local reg
+  reg="$(registry_path)"
+  [[ -f "$reg" ]] || return 0
+  cat "$reg"
+}
+
+registry_write() {
+  local reg content="$1"
+  reg="$(registry_path)"
+  if [[ -z "$content" ]]; then
+    rm -f "$reg"
+    return
+  fi
+  printf '%s\n' "$content" > "$reg"
+}
+
+registry_track() {
+  local zone="$1" record="$2" target="$3"
+  local line new_content
+  line="$(printf '%s\t%s\t%s' "$zone" "$record" "$target")"
+  new_content="$(registry_read | grep -Fv "$(printf '%s\t%s\t' "$zone" "$record")")"
+  if [[ -n "$new_content" ]]; then
+    printf '%s\n%s' "$new_content" "$line"
+  else
+    printf '%s' "$line"
+  fi
+}
+
+registry_untrack() {
+  local zone="$1" record="$2"
+  registry_read | grep -Fv "$(printf '%s\t%s\t' "$zone" "$record")" | sed '/^$/d'
+}
+
+route_for_record() {
+  local record="$1"
+  registry_read | awk -F '\t' -v r="$record" '$2 == r { print; exit }'
+}
+
+# Disable (delete CF record) a tracked route and untrack it.
+disable_tracked_route() {
+  local record="$1" entry target zone
+  entry="$(route_for_record "$record")"
+  if [[ -z "$entry" ]]; then
+    echo "Not a tracked route: ${record}" >&2
+    exit 1
+  fi
+  zone="$(printf '%s' "$entry" | cut -f1)"
+  target="$(printf '%s' "$entry" | cut -f3)"
+
+  if [[ "$zone" != "$CF_ZONE_ID" ]]; then
+    echo "Tracked route '${record}' is in zone ${zone}, not the loaded zone ${CF_ZONE_ID}." >&2
+    echo "Load that zone's environment (e.g. --cf-env-file) then retry." >&2
+    exit 1
+  fi
+
+  CF_RECORD_NAME="$record"
+  CF_TUNNEL_CNAME="$target"
+  disable_route
+}
+
+# List every tracked route, live status for the loaded zone.
+list_routes() {
+  local entries line z r t status
+  local orig_quiet="$QUIET"
+  entries="$(registry_read)"
+  if [[ -z "$entries" ]]; then
+    log "No tracked routes."
+    return
+  fi
+  if [[ "$QUIET" != "1" ]]; then
+    printf 'RECORD\tZONE\tTARGET\tSTATUS\n'
+  fi
+
+  while IFS=$'\t' read -r z r t; do
+    [[ -n "$z" ]] || continue
+    if [[ "$z" == "$CF_ZONE_ID" ]]; then
+      QUIET=1
+      status="$(status_route)"
+      QUIET="$orig_quiet"
+    else
+      status="other-zone"
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$r" "$z" "$t" "$status"
+  done <<< "$entries"
 }
 
 parse_args() {
@@ -469,13 +585,26 @@ parse_args() {
         OVERRIDE_CF_RETRY_COUNT="$(parse_opt_value "$1" "${2:-}")"
         shift 2
         ;;
-      enable|disable|rid|status)
+      enable|disable|rid|status|routes|disable-route)
         if [[ -n "$command" ]]; then
           echo "Only one command can be provided." >&2
           print_usage
           exit 1
         fi
-        command="$1"
+        if [[ "$1" == "disable-route" ]]; then
+          command="disable-route"
+          shift
+          if [[ $# -eq 0 ]]; then
+            echo "Missing record name for disable-route." >&2
+            print_usage
+            exit 1
+          fi
+          COMMAND_RECORD="$1"
+        elif [[ "$1" == "routes" ]]; then
+          command="routes"
+        else
+          command="$1"
+        fi
         shift
         ;;
       *)
@@ -553,7 +682,7 @@ case "$command" in
     print_help
     exit 0
     ;;
-  enable|disable|rid|status)
+  enable|disable|rid|status|routes|disable-route)
     ;;
   *)
     print_usage
@@ -577,7 +706,12 @@ fi
 
 require_env CF_ZONE_ID
 require_env CF_API_TOKEN
-require_env CF_RECORD_NAME
+
+case "$command" in
+  enable|disable|rid|status)
+    require_env CF_RECORD_NAME
+    ;;
+esac
 
 if [[ "$command" == "enable" || "$command" == "disable" ]]; then
   require_env CF_TUNNEL_CNAME
@@ -597,5 +731,11 @@ case "$command" in
     ;;
   status)
     status_route
+    ;;
+  routes)
+    list_routes
+    ;;
+  disable-route)
+    disable_tracked_route "$COMMAND_RECORD"
     ;;
 esac
