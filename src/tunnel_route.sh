@@ -33,6 +33,7 @@ if [[ -f "$ENV_DIR/.env" ]]; then
 fi
 
 
+# log — Print prefixed message to stdout. Suppressed when QUIET=1.
 log() {
   if [[ "$QUIET" == "1" ]]; then
     return
@@ -40,6 +41,7 @@ log() {
   echo "[tunnel_route] $*"
 }
 
+# debug — Print debug message to stderr. Only emitted when DEBUG=1.
 debug() {
   if [[ "$DEBUG" != "1" ]]; then
     return
@@ -47,6 +49,7 @@ debug() {
   echo "[tunnel_route][debug] $*" >&2
 }
 
+# print_help — Print full help text to stdout.
 print_help() {
   cat <<'EOF'
 Usage:
@@ -110,11 +113,14 @@ Tracked routes:
 EOF
 }
 
+# print_usage — Print one-line usage summary to stderr.
 print_usage() {
   echo "Usage: $0 [options] {enable|disable|rid|status|routes|disable-route <record>|help}" >&2
   echo "Run '$0 --help' for details." >&2
 }
 
+# parse_opt_value — Echo $2 if non-empty, else print error and exit 1.
+# Args: $1=option name (for error message), $2=option value.
 parse_opt_value() {
   local opt_name="$1"
   local opt_value="${2:-}"
@@ -125,6 +131,7 @@ parse_opt_value() {
   printf '%s' "$opt_value"
 }
 
+# require_command — Exit 1 if $1 is not on PATH.
 require_command() {
   local name="$1"
   if ! command -v "$name" >/dev/null 2>&1; then
@@ -133,6 +140,8 @@ require_command() {
   fi
 }
 
+# load_env — Source .env into the shell. Resolves from CF_ENV_FILE (file or
+# directory), or walks parent dirs from the script location to find .env.
 load_env() {
   local env_source="${CF_ENV_FILE:-}"
 
@@ -166,6 +175,8 @@ load_env() {
   source "$search_dir/.env"
 }
 
+# require_env — Exit 1 if the named env var is empty/unset after load.
+# Args: $1=env var name (validated as identifier).
 require_env() {
   local name="$1"
   local value=""
@@ -183,6 +194,9 @@ require_env() {
   fi
 }
 
+# api_request — Send an authenticated curl request to the Cloudflare API.
+# Args: $1=HTTP method, $2=URL, $3=optional JSON payload.
+# Respects CF_CONNECT_TIMEOUT, CF_MAX_TIME, CF_RETRY_COUNT.
 api_request() {
   local method="$1"
   local url="$2"
@@ -225,6 +239,8 @@ api_request() {
   fi
 }
 
+# assert_cf_success — Check .success in CF API response; exit 1 on false.
+# Args: $1=raw JSON response, $2=operation name (for error message).
 assert_cf_success() {
   local response="$1"
   local operation="$2"
@@ -234,6 +250,8 @@ assert_cf_success() {
   fi
 }
 
+# lookup_records_response — Fetch CNAME records for CF_RECORD_NAME from the CF API.
+# Prints the full API response JSON to stdout.
 lookup_records_response() {
   local response
   local encoded_name
@@ -245,13 +263,14 @@ lookup_records_response() {
   printf '%s' "$response"
 }
 
-# Find the DNS record JSON
+# get_record_json — Print the first matching CNAME record JSON for CF_RECORD_NAME, or nothing if absent.
 get_record_json() {
   local response
   response="$(lookup_records_response)"
   printf '%s' "$response" | jq -c --arg name "$CF_RECORD_NAME" 'first(.result[]? | select(.type == "CNAME" and .name == $name)) // empty'
 }
 
+# get_record_id — Print the DNS record ID for CF_RECORD_NAME, or nothing if absent.
 get_record_id() {
   local record_json
   record_json="$(get_record_json)"
@@ -261,7 +280,8 @@ get_record_id() {
   printf '%s' "$record_json" | jq -r '.id // empty'
 }
 
-# Enable: create CNAME record
+# enable_route — Create a proxied CNAME record if absent, or update it if
+# target/proxied differ. Tracks the route in the registry.
 enable_route() {
   local record_json
   record_json="$(get_record_json)"
@@ -304,7 +324,9 @@ enable_route() {
   fi
 }
 
-# Disable: delete CNAME record
+# disable_route — Delete the CNAME record for CF_RECORD_NAME if it exists.
+# Refuses to delete on target mismatch unless CF_ALLOW_DELETE_MISMATCH=true.
+# Untracks the route from the registry.
 disable_route() {
   local record_json
   record_json="$(get_record_json)"
@@ -336,6 +358,8 @@ disable_route() {
   registry_write "$(registry_untrack "$CF_ZONE_ID" "$CF_RECORD_NAME")"
 }
 
+# status_route — Print record status: absent, present, active, or inactive.
+# Verbose mode dumps the full API response JSON. Quiet mode prints just the state.
 status_route() {
   local response record_json
   response="$(lookup_records_response)"
@@ -384,12 +408,14 @@ status_route() {
 
 # --- Tracked-route registry ---
 
+# registry_path — Print the path to .tracked_routes, creating the directory if needed.
 registry_path() {
   local dir="${CF_TRACKED_ROUTES:-${XDG_STATE_HOME:-$HOME}/cf-dns-cname-route}"
   mkdir -p "$dir"
   printf '%s/.tracked_routes' "$dir"
 }
 
+# registry_read — Print the registry file contents, or nothing if the file is missing.
 registry_read() {
   local reg
   reg="$(registry_path)"
@@ -397,6 +423,7 @@ registry_read() {
   cat "$reg"
 }
 
+# registry_write — Write content to the registry file. Removes the file if content is empty.
 registry_write() {
   local reg content="$1"
   reg="$(registry_path)"
@@ -407,6 +434,8 @@ registry_write() {
   printf '%s\n' "$content" > "$reg"
 }
 
+# registry_track — Print registry content with a route added or updated.
+# Deduplicates by (zone, record). Args: $1=zone, $2=record, $3=target.
 registry_track() {
   local zone="$1" record="$2" target="$3"
   local line new_content
@@ -419,17 +448,22 @@ registry_track() {
   fi
 }
 
+# registry_untrack — Print registry content with the matching route removed.
+# Args: $1=zone, $2=record.
 registry_untrack() {
   local zone="$1" record="$2"
   registry_read | grep -Fv "$(printf '%s\t%s\t' "$zone" "$record")" | sed '/^$/d'
 }
 
+# route_for_record — Print the first registry entry matching a record name.
+# Args: $1=record name.
 route_for_record() {
   local record="$1"
   registry_read | awk -F '\t' -v r="$record" '$2 == r { print; exit }'
 }
 
-# Disable (delete CF record) a tracked route and untrack it.
+# disable_tracked_route — Delete a tracked route's CNAME record and untrack it.
+# Only works for routes in the currently loaded zone. Args: $1=record name.
 disable_tracked_route() {
   local record="$1" entry target zone
   entry="$(route_for_record "$record")"
@@ -451,7 +485,8 @@ disable_tracked_route() {
   disable_route
 }
 
-# List every tracked route, live status for the loaded zone.
+# list_routes — Print all tracked routes with their live status.
+# Routes in the loaded zone get live status; others show "other-zone".
 list_routes() {
   local entries line z r t status
   local orig_quiet="$QUIET"
@@ -477,6 +512,8 @@ list_routes() {
   done <<< "$entries"
 }
 
+# parse_args — Parse CLI args into globals (command, flags, OVERRIDE_* vars).
+# Validates a single command and mutually-exclusive quiet/verbose.
 parse_args() {
   command=""
 
@@ -621,6 +658,8 @@ parse_args() {
   fi
 }
 
+# apply_overrides — Apply CLI --cf-* overrides on top of loaded env vars.
+# Derives CF_TUNNEL_CNAME from CF_TUNNEL_ID if the CNAME wasn't overridden.
 apply_overrides() {
   if [[ -n "$OVERRIDE_CF_ZONE_ID" ]]; then
     CF_ZONE_ID="$OVERRIDE_CF_ZONE_ID"
