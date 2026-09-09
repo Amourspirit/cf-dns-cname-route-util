@@ -5,7 +5,8 @@ Single self-contained bash script (`src/tunnel_route.sh`) wrapping the Cloudflar
 ## Running it
 
 - Entrypoint: `./src/tunnel_route.sh [options] <command>`
-- Commands: `enable`, `disable`, `rid`, `status`, `routes`, `disable-route <record>`, `help`.
+- Commands: `enable`, `disable`, `rid`, `status`, `routes`, `disable-route <record>`, `source-sync`, `help`.
+- `source-sync` reconciles the loaded zone's tracked routes against live Cloudflare records (zone-scoped replace; `--dry-run` previews without writing).
 - Config comes from a `.env` discovered by walking up parent dirs from the script location (or `--cf-env-file` / `CF_ENV_FILE`). CLI `--cf-*` overrides beat `.env`.
 
 ## Gotchas

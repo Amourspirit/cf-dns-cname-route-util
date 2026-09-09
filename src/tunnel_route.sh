@@ -6,6 +6,7 @@ CF_TUNNEL_CNAME_SUFFIX="${CF_TUNNEL_CNAME_SUFFIX:-.cfargotunnel.com}"
 QUIET=0
 VERBOSE=0
 DEBUG=0
+DRY_RUN=0
 
 OVERRIDE_CF_ZONE_ID=""
 OVERRIDE_CF_API_TOKEN=""
@@ -62,6 +63,7 @@ Commands:
   status           Show status of the Cloudflare CNAME record.
   routes           List every tracked route and its status.
   disable-route N  Delete a tracked route's CNAME record and untrack it.
+  source-sync      Reconcile the loaded zone's tracked routes against live Cloudflare records.
   help             Show this help message.
 
 Options:
@@ -69,6 +71,7 @@ Options:
   -v, --verbose   Print verbose output. For status, prints full API JSON.
   -q, --quiet     Print minimal output (automation-friendly).
   -d, --debug     Print debug logs to stderr.
+      --dry-run   For source-sync, print what would change without writing.
       --quite     Alias for --quiet.
   --cf-zone-id VALUE               Override CF_ZONE_ID.
   --cf-api-token VALUE             Override CF_API_TOKEN.
@@ -115,7 +118,7 @@ EOF
 
 # print_usage — Print one-line usage summary to stderr.
 print_usage() {
-  echo "Usage: $0 [options] {enable|disable|rid|status|routes|disable-route <record>|help}" >&2
+  echo "Usage: $0 [options] {enable|disable|rid|status|routes|disable-route <record>|source-sync|help}" >&2
   echo "Run '$0 --help' for details." >&2
 }
 
@@ -278,6 +281,23 @@ get_record_id() {
     return 0
   fi
   printf '%s' "$record_json" | jq -r '.id // empty'
+}
+
+# fetch_zone_cname_records — Print every CNAME record JSON in the loaded zone, paged.
+fetch_zone_cname_records() {
+  local page=1 total_pages=1 response
+  while :; do
+    if ! response="$(api_request GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=CNAME&per_page=100&page=${page}")"; then
+      exit 1
+    fi
+    assert_cf_success "$response" "lookup"
+    printf '%s' "$response" | jq -c '.result[]?'
+    total_pages="$(printf '%s' "$response" | jq -r '.result_info.total_pages // 1')"
+    if [[ "$page" -ge "$total_pages" ]]; then
+      break
+    fi
+    page=$((page + 1))
+  done
 }
 
 # enable_route — Create a proxied CNAME record if absent, or update it if
@@ -512,6 +532,54 @@ list_routes() {
   done <<< "$entries"
 }
 
+# source_sync — Reconcile the loaded zone's slice of the registry against the live
+# set of Cloudflare tunnel CNAMEs. Adds routes present in CF but not tracked,
+# updates targets of known ones, and drops registry entries no longer in CF.
+# Other zones' entries are left untouched.
+source_sync() {
+  local suffix="${CF_TUNNEL_CNAME_SUFFIX:-.cfargotunnel.com}"
+  local synced="" jline record content
+  local old_zone other new_content diff_text
+
+  while IFS= read -r jline; do
+    [[ -n "$jline" ]] || continue
+    record="$(printf '%s' "$jline" | jq -r '.name // empty')"
+    content="$(printf '%s' "$jline" | jq -r '.content // empty')"
+    [[ -n "$record" && "$content" == *"$suffix" ]] || continue
+    synced+="$(printf '%s\t%s\t%s' "$CF_ZONE_ID" "$record" "$content")"
+    synced+=$'\n'
+  done <<< "$(fetch_zone_cname_records)"
+
+  other="$(registry_read | awk -F '\t' -v z="$CF_ZONE_ID" '$1 != z')"
+  new_content="$(printf '%s\n%s\n' "$other" "$synced" | sed '/^$/d')"
+  old_content="$(registry_read | sed '/^$/d')"
+
+  log "Source-sync: found $(printf '%s\n' "$synced" | sed '/^$/d' | wc -l | tr -d ' ') tunnel route(s) in zone ${CF_ZONE_ID}."
+
+  if [[ -z "$new_content" ]]; then
+    log "Registry would be emptied for zone ${CF_ZONE_ID} (no tunnel routes remain in Cloudflare)."
+  fi
+
+  diff_text="$(diff <(printf '%s\n' "$old_content") <(printf '%s\n' "$new_content") || true)"
+  if [[ -z "$diff_text" ]]; then
+    log "Registry already in sync."
+  else
+    printf '%s\n' "$diff_text" | while IFS= read -r l; do
+      case "${l:0:1}" in
+        '<') log "remove: ${l:2}" ;;
+        '>') log "add:    ${l:2}" ;;
+      esac
+    done
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "Dry run: registry not modified. Re-run without --dry-run to apply."
+    return
+  fi
+  registry_write "$new_content"
+  log "Registry updated for zone ${CF_ZONE_ID}."
+}
+
 # parse_args — Parse CLI args into globals (command, flags, OVERRIDE_* vars).
 # Validates a single command and mutually-exclusive quiet/verbose.
 parse_args() {
@@ -533,6 +601,10 @@ parse_args() {
         ;;
       -d|--debug)
         DEBUG=1
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=1
         shift
         ;;
       --cf-zone-id=*)
@@ -617,7 +689,7 @@ parse_args() {
         OVERRIDE_CF_RETRY_COUNT="$(parse_opt_value "$1" "${2:-}")"
         shift 2
         ;;
-      enable|disable|rid|status|routes|disable-route)
+      enable|disable|rid|status|routes|disable-route|source-sync)
         if [[ -n "$command" ]]; then
           echo "Only one command can be provided." >&2
           print_usage
@@ -716,7 +788,7 @@ case "$command" in
     print_help
     exit 0
     ;;
-  enable|disable|rid|status|routes|disable-route)
+  enable|disable|rid|status|routes|disable-route|source-sync)
     ;;
   *)
     print_usage
@@ -771,5 +843,8 @@ case "$command" in
     ;;
   disable-route)
     disable_tracked_route "$COMMAND_RECORD"
+    ;;
+  source-sync)
+    source_sync
     ;;
 esac

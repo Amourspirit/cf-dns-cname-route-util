@@ -9,11 +9,11 @@ A `(zone, record)` pair plus its tunnel target (CNAME) that points a hostname th
 _Avoid_: Track, record, entry
 
 **Tracked route**:
-A route that this tool has successfully started (`enable`) and recorded in the local registry, so it can be listed and disabled later.
+A route this tool manages and records in the local registry, so it can be listed and disabled later. Tracked routes are normally created by `enable`, but can also be adopted into the registry from live Cloudflare state by `source-sync`.
 _Avoid_: Zone, tracked zone
 
 **Registry**:
-The local tab-delimited sidecar file (`.tracked_routes`) listing every tracked route. Its directory comes from `CF_TRACKED_ROUTES`, defaulting to `${XDG_STATE_HOME:-$HOME}/cf-dns-cname-route`.
+The local tab-delimited sidecar file (`.tracked_routes`) listing tracked routes. Its directory comes from `CF_TRACKED_ROUTES`, defaulting to `${XDG_STATE_HOME:-$HOME}/cf-dns-cname-route`. It reflects the set of tunnel routes this tool manages; `source-sync` reconciles the loaded zone's slice against live Cloudflare records.
 _Avoid_: List, config, database
 
 **Current route**:

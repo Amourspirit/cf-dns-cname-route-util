@@ -10,6 +10,7 @@ The script supports enabling, disabling, querying record ID, and checking status
 - Delete a CNAME route safely (`disable`)
 - Print record ID (`rid`)
 - Inspect route state (`status`)
+- Reconcile tracked routes against live Cloudflare records (`source-sync`)
 - Works with both `bash` and `zsh`
 - Supports `.env` auto-discovery and CLI overrides for all key runtime variables
 - Optional debug logging with `--debug`
@@ -46,6 +47,7 @@ rid              Print the Cloudflare DNS record ID for CF_RECORD_NAME.
 status           Show status of the Cloudflare CNAME record.
 routes           List every tracked route and its status.
 disable-route N  Delete a tracked route's CNAME record and untrack it.
+source-sync      Reconcile the loaded zone's tracked routes against live Cloudflare records.
 help             Show help.
 ```
 
@@ -80,6 +82,12 @@ The registry directory comes from `CF_TRACKED_ROUTES` (a directory; the file is
   other-zone routes, load that zone's environment (e.g. `--cf-env-file`) first.
 - `disable-route` on a record that isn't tracked or is in another zone exits
   with an error and leaves the registry untouched.
+- `source-sync` reads every tunnel CNAME route (proxied CNAME whose target ends
+  in `.cfargotunnel.com`) currently present in the loaded zone and replaces that
+  zone's slice of the registry with it: routes found in Cloudflare but not
+  tracked get added, known targets are corrected, and registry entries that no
+  longer exist in Cloudflare are dropped. Routes in other zones are untouched.
+  Use `--dry-run` to preview changes without writing.
 
 ## CLI Options
 
@@ -88,6 +96,7 @@ The registry directory comes from `CF_TRACKED_ROUTES` (a directory; the file is
 -v, --verbose
 -q, --quiet
 -d, --debug
+    --dry-run (preview source-sync without writing)
     --quite (alias for --quiet)
 
 --cf-zone-id VALUE
@@ -120,7 +129,7 @@ The script reads environment values from:
 
 - `CF_ZONE_ID`
 - `CF_API_TOKEN`
-- `CF_RECORD_NAME`
+- `CF_RECORD_NAME` (not required for `routes` or `source-sync`)
 
 For `enable` and `disable`, also required:
 
