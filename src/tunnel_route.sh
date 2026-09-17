@@ -20,8 +20,9 @@ OVERRIDE_CF_MAX_TIME=""
 OVERRIDE_CF_RETRY_COUNT=""
 CF_ENV_FILE=""
 
-# Absolute directory containing this script (works when called from anywhere)
-SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd -P)"
+# Absolute directory containing this script, resolving symlinks so it works
+# when invoked through a symlink from another directory.
+SCRIPT_DIR="$(dirname "$(realpath -- "${BASH_SOURCE[0]}")")"
 
 ENV_DIR=$SCRIPT_DIR
 
@@ -32,7 +33,6 @@ done
 if [[ -f "$ENV_DIR/.env" ]]; then
   CF_ENV_FILE="$ENV_DIR/.env"
 fi
-
 
 # log — Print prefixed message to stdout. Suppressed when QUIET=1.
 log() {
@@ -161,9 +161,7 @@ load_env() {
     exit 1
   fi
 
-  # Absolute directory containing this script (works when called from anywhere)
-  local search_dir
-  search_dir="$(cd -- "$(dirname -- "$0")" && pwd -P)"
+  local search_dir="$SCRIPT_DIR"
 
   # Traverse upwards until we find .env or hit the file system root
   while [[ "$search_dir" != "/" && ! -f "$search_dir/.env" ]]; do
@@ -221,10 +219,10 @@ api_request() {
       -H "Authorization: Bearer ${CF_API_TOKEN}" \
       -H "Content-Type: application/json" \
       --data "$payload" || {
-        local curl_exit="$?"
-        echo "Cloudflare API request failed (${method} ${url}) [curl exit ${curl_exit}]." >&2
-        return "$curl_exit"
-      }
+      local curl_exit="$?"
+      echo "Cloudflare API request failed (${method} ${url}) [curl exit ${curl_exit}]." >&2
+      return "$curl_exit"
+    }
   else
     curl --silent --show-error --fail \
       --connect-timeout "$connect_timeout" \
@@ -235,10 +233,10 @@ api_request() {
       -X "$method" "$url" \
       -H "Authorization: Bearer ${CF_API_TOKEN}" \
       -H "Content-Type: application/json" || {
-        local curl_exit="$?"
-        echo "Cloudflare API request failed (${method} ${url}) [curl exit ${curl_exit}]." >&2
-        return "$curl_exit"
-      }
+      local curl_exit="$?"
+      echo "Cloudflare API request failed (${method} ${url}) [curl exit ${curl_exit}]." >&2
+      return "$curl_exit"
+    }
   fi
 }
 
@@ -451,7 +449,7 @@ registry_write() {
     rm -f "$reg"
     return
   fi
-  printf '%s\n' "$content" > "$reg"
+  printf '%s\n' "$content" >"$reg"
 }
 
 # registry_track — Print registry content with a route added or updated.
@@ -529,7 +527,7 @@ list_routes() {
       status="other-zone"
     fi
     printf '%s\t%s\t%s\t%s\n' "$r" "$z" "$t" "$status"
-  done <<< "$entries"
+  done <<<"$entries"
 }
 
 # source_sync — Reconcile the loaded zone's slice of the registry against the live
@@ -548,7 +546,7 @@ source_sync() {
     [[ -n "$record" && "$content" == *"$suffix" ]] || continue
     synced+="$(printf '%s\t%s\t%s' "$CF_ZONE_ID" "$record" "$content")"
     synced+=$'\n'
-  done <<< "$(fetch_zone_cname_records)"
+  done <<<"$(fetch_zone_cname_records)"
 
   other="$(registry_read | awk -F '\t' -v z="$CF_ZONE_ID" '$1 != z')"
   new_content="$(printf '%s\n%s\n' "$other" "$synced" | sed '/^$/d')"
@@ -566,8 +564,8 @@ source_sync() {
   else
     printf '%s\n' "$diff_text" | while IFS= read -r l; do
       case "${l:0:1}" in
-        '<') log "remove: ${l:2}" ;;
-        '>') log "add:    ${l:2}" ;;
+      '<') log "remove: ${l:2}" ;;
+      '>') log "add:    ${l:2}" ;;
       esac
     done
   fi
@@ -587,135 +585,135 @@ parse_args() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -h|--help|help)
-        command="help"
+    -h | --help | help)
+      command="help"
+      shift
+      ;;
+    -v | --verbose)
+      VERBOSE=1
+      shift
+      ;;
+    -q | --quiet | --quite)
+      QUIET=1
+      shift
+      ;;
+    -d | --debug)
+      DEBUG=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --cf-zone-id=*)
+      OVERRIDE_CF_ZONE_ID="${1#*=}"
+      shift
+      ;;
+    --cf-zone-id)
+      OVERRIDE_CF_ZONE_ID="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    --cf-api-token=*)
+      OVERRIDE_CF_API_TOKEN="${1#*=}"
+      shift
+      ;;
+    --cf-api-token)
+      OVERRIDE_CF_API_TOKEN="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    --cf-record-name=*)
+      OVERRIDE_CF_RECORD_NAME="${1#*=}"
+      shift
+      ;;
+    --cf-record-name)
+      OVERRIDE_CF_RECORD_NAME="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    --cf-tunnel-cname=*)
+      OVERRIDE_CF_TUNNEL_CNAME="${1#*=}"
+      shift
+      ;;
+    --cf-tunnel-cname)
+      OVERRIDE_CF_TUNNEL_CNAME="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    --cf-tunnel-id=*)
+      OVERRIDE_CF_TUNNEL_ID="${1#*=}"
+      shift
+      ;;
+    --cf-tunnel-id)
+      OVERRIDE_CF_TUNNEL_ID="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    --cf-env-file=*)
+      OVERRIDE_CF_ENV_FILE="${1#*=}"
+      CF_ENV_FILE="$OVERRIDE_CF_ENV_FILE"
+      shift
+      ;;
+    --cf-env-file)
+      OVERRIDE_CF_ENV_FILE="$(parse_opt_value "$1" "${2:-}")"
+      CF_ENV_FILE="$OVERRIDE_CF_ENV_FILE"
+      shift 2
+      ;;
+    --cf-allow-delete-mismatch=*)
+      OVERRIDE_CF_ALLOW_DELETE_MISMATCH="${1#*=}"
+      shift
+      ;;
+    --cf-allow-delete-mismatch)
+      OVERRIDE_CF_ALLOW_DELETE_MISMATCH="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    --cf-connect-timeout=*)
+      OVERRIDE_CF_CONNECT_TIMEOUT="${1#*=}"
+      shift
+      ;;
+    --cf-connect-timeout)
+      OVERRIDE_CF_CONNECT_TIMEOUT="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    --cf-max-time=*)
+      OVERRIDE_CF_MAX_TIME="${1#*=}"
+      shift
+      ;;
+    --cf-max-time)
+      OVERRIDE_CF_MAX_TIME="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    --cf-retry-count=*)
+      OVERRIDE_CF_RETRY_COUNT="${1#*=}"
+      shift
+      ;;
+    --cf-retry-count)
+      OVERRIDE_CF_RETRY_COUNT="$(parse_opt_value "$1" "${2:-}")"
+      shift 2
+      ;;
+    enable | disable | rid | status | routes | disable-route | source-sync)
+      if [[ -n "$command" ]]; then
+        echo "Only one command can be provided." >&2
+        print_usage
+        exit 1
+      fi
+      if [[ "$1" == "disable-route" ]]; then
+        command="disable-route"
         shift
-        ;;
-      -v|--verbose)
-        VERBOSE=1
-        shift
-        ;;
-      -q|--quiet|--quite)
-        QUIET=1
-        shift
-        ;;
-      -d|--debug)
-        DEBUG=1
-        shift
-        ;;
-      --dry-run)
-        DRY_RUN=1
-        shift
-        ;;
-      --cf-zone-id=*)
-        OVERRIDE_CF_ZONE_ID="${1#*=}"
-        shift
-        ;;
-      --cf-zone-id)
-        OVERRIDE_CF_ZONE_ID="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      --cf-api-token=*)
-        OVERRIDE_CF_API_TOKEN="${1#*=}"
-        shift
-        ;;
-      --cf-api-token)
-        OVERRIDE_CF_API_TOKEN="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      --cf-record-name=*)
-        OVERRIDE_CF_RECORD_NAME="${1#*=}"
-        shift
-        ;;
-      --cf-record-name)
-        OVERRIDE_CF_RECORD_NAME="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      --cf-tunnel-cname=*)
-        OVERRIDE_CF_TUNNEL_CNAME="${1#*=}"
-        shift
-        ;;
-      --cf-tunnel-cname)
-        OVERRIDE_CF_TUNNEL_CNAME="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      --cf-tunnel-id=*)
-        OVERRIDE_CF_TUNNEL_ID="${1#*=}"
-        shift
-        ;;
-      --cf-tunnel-id)
-        OVERRIDE_CF_TUNNEL_ID="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      --cf-env-file=*)
-        OVERRIDE_CF_ENV_FILE="${1#*=}"
-        CF_ENV_FILE="$OVERRIDE_CF_ENV_FILE"
-        shift
-        ;;
-      --cf-env-file)
-        OVERRIDE_CF_ENV_FILE="$(parse_opt_value "$1" "${2:-}")"
-        CF_ENV_FILE="$OVERRIDE_CF_ENV_FILE"
-        shift 2
-        ;;
-      --cf-allow-delete-mismatch=*)
-        OVERRIDE_CF_ALLOW_DELETE_MISMATCH="${1#*=}"
-        shift
-        ;;
-      --cf-allow-delete-mismatch)
-        OVERRIDE_CF_ALLOW_DELETE_MISMATCH="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      --cf-connect-timeout=*)
-        OVERRIDE_CF_CONNECT_TIMEOUT="${1#*=}"
-        shift
-        ;;
-      --cf-connect-timeout)
-        OVERRIDE_CF_CONNECT_TIMEOUT="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      --cf-max-time=*)
-        OVERRIDE_CF_MAX_TIME="${1#*=}"
-        shift
-        ;;
-      --cf-max-time)
-        OVERRIDE_CF_MAX_TIME="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      --cf-retry-count=*)
-        OVERRIDE_CF_RETRY_COUNT="${1#*=}"
-        shift
-        ;;
-      --cf-retry-count)
-        OVERRIDE_CF_RETRY_COUNT="$(parse_opt_value "$1" "${2:-}")"
-        shift 2
-        ;;
-      enable|disable|rid|status|routes|disable-route|source-sync)
-        if [[ -n "$command" ]]; then
-          echo "Only one command can be provided." >&2
+        if [[ $# -eq 0 ]]; then
+          echo "Missing record name for disable-route." >&2
           print_usage
           exit 1
         fi
-        if [[ "$1" == "disable-route" ]]; then
-          command="disable-route"
-          shift
-          if [[ $# -eq 0 ]]; then
-            echo "Missing record name for disable-route." >&2
-            print_usage
-            exit 1
-          fi
-          COMMAND_RECORD="$1"
-        elif [[ "$1" == "routes" ]]; then
-          command="routes"
-        else
-          command="$1"
-        fi
-        shift
-        ;;
-      *)
-        echo "Unknown argument: $1" >&2
-        print_usage
-        exit 1
-        ;;
+        COMMAND_RECORD="$1"
+      elif [[ "$1" == "routes" ]]; then
+        command="routes"
+      else
+        command="$1"
+      fi
+      shift
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      print_usage
+      exit 1
+      ;;
     esac
   done
 
@@ -784,16 +782,16 @@ parse_args "$@"
 debug "parsed args command=${command} quiet=${QUIET} verbose=${VERBOSE} debug=${DEBUG}"
 
 case "$command" in
-  help)
-    print_help
-    exit 0
-    ;;
-  enable|disable|rid|status|routes|disable-route|source-sync)
-    ;;
-  *)
-    print_usage
-    exit 1
-    ;;
+help)
+  print_help
+  exit 0
+  ;;
+enable | disable | rid | status | routes | disable-route | source-sync)
+  ;;
+*)
+  print_usage
+  exit 1
+  ;;
 esac
 
 load_env
@@ -814,9 +812,9 @@ require_env CF_ZONE_ID
 require_env CF_API_TOKEN
 
 case "$command" in
-  enable|disable|rid|status)
-    require_env CF_RECORD_NAME
-    ;;
+enable | disable | rid | status)
+  require_env CF_RECORD_NAME
+  ;;
 esac
 
 if [[ "$command" == "enable" || "$command" == "disable" ]]; then
@@ -826,25 +824,25 @@ fi
 debug "environment validation completed"
 
 case "$command" in
-  enable)
-    enable_route
-    ;;
-  disable)
-    disable_route
-    ;;
-  rid)
-    get_record_id
-    ;;
-  status)
-    status_route
-    ;;
-  routes)
-    list_routes
-    ;;
-  disable-route)
-    disable_tracked_route "$COMMAND_RECORD"
-    ;;
-  source-sync)
-    source_sync
-    ;;
+enable)
+  enable_route
+  ;;
+disable)
+  disable_route
+  ;;
+rid)
+  get_record_id
+  ;;
+status)
+  status_route
+  ;;
+routes)
+  list_routes
+  ;;
+disable-route)
+  disable_tracked_route "$COMMAND_RECORD"
+  ;;
+source-sync)
+  source_sync
+  ;;
 esac
